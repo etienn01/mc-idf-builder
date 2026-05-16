@@ -1,0 +1,12 @@
+services:
+  builder:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - downloads:/app/downloads
+      - pio_cache:/pio-home
+
+volumes:
+  downloads:
+  pio_cache:
