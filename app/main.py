@@ -241,6 +241,7 @@ def get_build(build_id: str):
         "ref": job.ref,
         "status": job.status,
         "download_url": f"/api/builds/{job.id}/download" if job.status == BuildStatus.COMPLETED else None,
+        "filename": job.firmware_path.name if job.firmware_path else None,
     }
 
 

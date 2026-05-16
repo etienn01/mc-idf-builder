@@ -201,14 +201,15 @@ select:focus {
 }
 
 #download-link {
-  display: inline-block;
-  margin-top: 0.75rem;
-  padding: 0.4rem 0.9rem;
+  display: block;
+  margin-top: 0.5rem;
+  padding: 0.55rem;
   background: #0070f3;
   color: #fff;
   text-decoration: none;
   border-radius: 4px;
-  font-size: 0.85rem;
+  font-size: 0.9rem;
+  text-align: center;
 }
 
 #download-link:hover { background: #005ac5; }

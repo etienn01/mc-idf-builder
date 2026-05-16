@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM --platform=linux/amd64 python:3.12-slim
 
 ARG MESHCORE_REPO=https://github.com/meshcore-dev/MeshCore.git
 ARG MESHCORE_REF=main

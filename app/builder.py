@@ -73,7 +73,9 @@ def _encode_regions(regions: list[RegionEntry]) -> str:
         parent_part = f"/{r.parent}" if r.parent else ""
         flag = "A" if r.flood == "allow" else "D"
         parts.append(f"{r.name}{parent_part}:{flag}")
-    return ";".join(parts)
+    # Join with \x3b (C hex escape for ';') so no literal semicolons appear
+    # in the shell command line. GCC expands \x3b to ';' in the compiled string.
+    return "\\x3b".join(parts)
 
 
 def validate_region_name(name: str) -> bool:
@@ -188,25 +190,38 @@ class BuildQueue:
             patch(srcdir)
             await self._emit(job.id, "Patch applied.")
 
+            # Tags are "repeater-vX.Y.Z"; branches get the SHA for traceability
+            _tag_prefix = "repeater-"
+            if job.ref.startswith(_tag_prefix):
+                version_label = job.ref[len(_tag_prefix):]
+            else:
+                sha_proc = await asyncio.create_subprocess_exec(
+                    "git", "rev-parse", "--short", "HEAD",
+                    cwd=srcdir,
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+                )
+                sha_out, _ = await sha_proc.communicate()
+                sha = sha_out.decode().strip()
+                version_label = f"{job.ref}-{sha}" if sha else job.ref
+
             await self._emit(job.id, f"=== Building {job.env} ===")
             build_env = {**os.environ, "PLATFORMIO_BUILD_FLAGS": job.build_flags}
             rc = await run("pio", "run", "-e", job.env, env=build_env)
             if rc != 0:
                 raise RuntimeError(f"pio run exited with code {rc}")
 
-            await run("pio", "run", "-t", "mergebin", "-e", job.env, env=build_env)
-
             build_dir = Path(srcdir) / ".pio" / "build" / job.env
-            merged = build_dir / "firmware-merged.bin"
-            regular = build_dir / "firmware.bin"
-            src = merged if merged.exists() else regular
-
-            if not src.exists():
+            src = next(
+                (build_dir / name for name in ("firmware.bin", "firmware.zip", "firmware.hex")
+                 if (build_dir / name).exists()),
+                None,
+            )
+            if src is None:
                 raise RuntimeError("No firmware binary found after build")
 
             dest_dir = DOWNLOADS_DIR / job.id
             dest_dir.mkdir(parents=True, exist_ok=True)
-            dest = dest_dir / f"{job.env}.bin"
+            dest = dest_dir / f"{job.env}-{version_label}{src.suffix}"
             shutil.copy2(src, dest)
 
             job.firmware_path = dest

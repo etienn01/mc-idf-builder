@@ -1,6 +1,7 @@
 services:
   builder:
     build: .
+    platform: linux/amd64
     ports:
       - "8000:8000"
     volumes:

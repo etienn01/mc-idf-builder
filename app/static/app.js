@@ -292,11 +292,11 @@ function streamLogs(buildId) {
 function checkStatus(buildId) {
   fetch(`/api/builds/${buildId}`)
     .then(r => r.json())
-    .then(({ status, download_url }) => {
+    .then(({ status, download_url, filename }) => {
       buildBtn.disabled = false;
       if (status === 'completed' && download_url) {
         dlLink.href = download_url;
-        dlLink.textContent = `Download ${currentEnvName()}.bin`;
+        dlLink.textContent = `Download ${filename ?? currentEnvName() + '.bin'}`;
         dlLink.hidden = false;
       }
     });
