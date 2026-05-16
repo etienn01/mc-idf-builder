@@ -19,6 +19,7 @@ from app.builder import (
     BuildJob,
     BuildRequest,
     BuildStatus,
+    MAX_QUEUE_SIZE,
     MESHCORE_REPO,
     RegionEntry,
     make_job,
@@ -220,6 +221,8 @@ async def get_versions():
 async def submit_build(body: BuildRequestModel):
     if body.env not in _env_names:
         raise HTTPException(400, f"Unknown environment: {body.env!r}")
+    if queue.queue_depth() >= MAX_QUEUE_SIZE:
+        raise HTTPException(429, "Build queue is full, try again later")
 
     req = BuildRequest(
         env=body.env,

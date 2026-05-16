@@ -336,14 +336,16 @@ function startBuild() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-    .then(r => r.ok ? r.json() : r.json().then(e => Promise.reject(e)))
+    .then(r => r.ok ? r.json() : r.json().then(e => Promise.reject({ status: r.status, ...e })))
     .then(({ build_id }) => {
       currentBuildId = build_id;
       localStorage.setItem('buildId', build_id);
       streamLogs(build_id);
     })
     .catch(err => {
-      appendLog('Error: ' + (err.detail ?? JSON.stringify(err)));
+      appendLog(err.status === 429
+        ? 'Build queue is full — try again in a moment.'
+        : 'Error: ' + (err.detail ?? JSON.stringify(err)));
       buildBtn.disabled = false;
       cancelBtn.hidden = true;
     });

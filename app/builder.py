@@ -10,9 +10,13 @@ from enum import Enum
 from pathlib import Path
 from typing import Optional
 
+import time
+
 MESHCORE_REPO = os.environ.get("MESHCORE_REPO", "https://github.com/meshcore-dev/MeshCore.git")
 DOWNLOADS_DIR = Path("downloads")
-MAX_CONCURRENT = int(os.environ.get("MAX_CONCURRENT_BUILDS", "3"))
+MAX_CONCURRENT = int(os.environ.get("MAX_CONCURRENT_BUILDS", "2"))
+MAX_QUEUE_SIZE = int(os.environ.get("MAX_QUEUE_SIZE", "10"))
+DOWNLOAD_TTL_HOURS = int(os.environ.get("DOWNLOAD_TTL_HOURS", "1"))
 
 _LORA_FLAGS = [
     "-D LORA_FREQ=869.618",
@@ -23,6 +27,15 @@ _LORA_FLAGS = [
 
 _REGION_NAME_RE = re.compile(r"^[a-z0-9\-\$\#]+$")
 _REF_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._/\-]{0,99}$")
+
+
+def _cleanup_old_downloads() -> None:
+    if not DOWNLOADS_DIR.exists():
+        return
+    cutoff = time.time() - DOWNLOAD_TTL_HOURS * 3600
+    for entry in DOWNLOADS_DIR.iterdir():
+        if entry.is_dir() and entry.stat().st_mtime < cutoff:
+            shutil.rmtree(entry, ignore_errors=True)
 
 
 class BuildStatus(str, Enum):
@@ -67,7 +80,7 @@ class BuildJob:
 
 
 def _sanitize(s: str, max_len: int) -> str:
-    return re.sub(r'["\\]', "", s)[:max_len]
+    return re.sub(r"""["'\\`]""", "", s)[:max_len]
 
 
 def _encode_regions(regions: list[RegionEntry]) -> str:
@@ -129,6 +142,12 @@ class BuildQueue:
     def get(self, job_id: str) -> Optional[BuildJob]:
         return self._jobs.get(job_id)
 
+    def queue_depth(self) -> int:
+        return sum(
+            1 for j in self._jobs.values()
+            if j.status in (BuildStatus.PENDING, BuildStatus.RUNNING)
+        )
+
     def cancel(self, job_id: str) -> bool:
         task = self._tasks.get(job_id)
         if task and not task.done():
@@ -159,6 +178,7 @@ class BuildQueue:
             await q.put(line)
 
     async def _guarded_run(self, job: BuildJob) -> None:
+        await self._emit(job.id, "Queued, waiting for a build slot…")
         async with self._sem:
             await self._run_job(job)
 
@@ -287,6 +307,7 @@ class BuildQueue:
             shutil.rmtree(tmpdir, ignore_errors=True)
             if job.status != BuildStatus.CANCELLED:
                 await self._emit(job.id, None)
+            _cleanup_old_downloads()
 
 
 queue = BuildQueue()
