@@ -101,6 +101,7 @@ class RegionEntryModel(BaseModel):
 class BuildRequestModel(BaseModel):
     env: str
     ref: str = "main"
+    prs: list[int] = []
     advert_name: str = ""
     admin_password: str = ""
     advert_lat: Optional[float] = None
@@ -130,6 +131,15 @@ class BuildRequestModel(BaseModel):
             raise ValueError("Invalid git ref")
         return v
 
+    @field_validator("prs")
+    @classmethod
+    def check_prs(cls, v: list[int]) -> list[int]:
+        if len(v) > 10:
+            raise ValueError("Too many PRs")
+        if any(n <= 0 for n in v):
+            raise ValueError("PR numbers must be positive integers")
+        return list(dict.fromkeys(v))  # deduplicate, preserve order
+
 
 # ---------------------------------------------------------------------------
 # API routes
@@ -143,7 +153,7 @@ def get_environments():
         {
             "board": board_variant,
             "envs": [
-                {"env_name": e.env_name, "firmware_type": e.firmware_type}
+                {"env_name": e.env_name, "firmware_type": e.firmware_type, "platform": e.platform}
                 for e in envs
             ],
         }
@@ -214,6 +224,7 @@ async def submit_build(body: BuildRequestModel):
     req = BuildRequest(
         env=body.env,
         ref=body.ref,
+        prs=body.prs,
         advert_name=body.advert_name,
         admin_password=body.admin_password,
         advert_lat=body.advert_lat,
@@ -243,6 +254,17 @@ def get_build(build_id: str):
         "download_url": f"/api/builds/{job.id}/download" if job.status == BuildStatus.COMPLETED else None,
         "filename": job.firmware_path.name if job.firmware_path else None,
     }
+
+
+@app.delete("/api/builds/{build_id}")
+async def cancel_build(build_id: str):
+    job = queue.get(build_id)
+    if not job:
+        raise HTTPException(404)
+    if job.status not in (BuildStatus.PENDING, BuildStatus.RUNNING):
+        raise HTTPException(409, "Build is not cancellable")
+    queue.cancel(build_id)
+    return {"build_id": build_id}
 
 
 @app.get("/api/builds/{build_id}/logs")

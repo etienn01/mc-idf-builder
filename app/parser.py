@@ -19,6 +19,7 @@ class BoardEnv:
     env_name: str
     board_variant: str   # env prefix with firmware suffix stripped, e.g. "heltec_v4_tft"
     firmware_type: str   # repeater | companion_usb | companion_ble | companion_wifi
+    platform: str = ""
 
 
 def _firmware_type(env_name: str) -> str | None:
@@ -54,10 +55,12 @@ def load_environments(meshcore_path: str = None) -> list[BoardEnv]:
             ftype = _firmware_type(env_name)
             if ftype is None:
                 continue
+            platform = cp.get(section, "platform", fallback="").strip().lower()
             envs.append(BoardEnv(
                 env_name=env_name,
                 board_variant=_board_variant(env_name),
                 firmware_type=ftype,
+                platform=platform,
             ))
 
     return envs

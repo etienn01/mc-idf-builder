@@ -30,6 +30,7 @@ class BuildStatus(str, Enum):
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 @dataclass
@@ -43,6 +44,7 @@ class RegionEntry:
 class BuildRequest:
     env: str
     ref: str = "main"
+    prs: list[int] = field(default_factory=list)
     advert_name: str = ""
     admin_password: str = ""
     advert_lat: Optional[float] = None
@@ -57,6 +59,7 @@ class BuildJob:
     id: str
     env: str
     ref: str
+    prs: list[int]
     build_flags: str
     status: BuildStatus = BuildStatus.PENDING
     log_lines: list[str] = field(default_factory=list)
@@ -115,16 +118,23 @@ class BuildQueue:
         self._sem = asyncio.Semaphore(max_concurrent)
         self._jobs: dict[str, BuildJob] = {}
         self._subscribers: dict[str, list[asyncio.Queue]] = {}
-        self._tasks: set[asyncio.Task] = set()
+        self._tasks: dict[str, asyncio.Task] = {}
 
     def submit(self, job: BuildJob) -> None:
         self._jobs[job.id] = job
         task = asyncio.create_task(self._guarded_run(job))
-        self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
+        self._tasks[job.id] = task
+        task.add_done_callback(lambda _: self._tasks.pop(job.id, None))
 
     def get(self, job_id: str) -> Optional[BuildJob]:
         return self._jobs.get(job_id)
+
+    def cancel(self, job_id: str) -> bool:
+        task = self._tasks.get(job_id)
+        if task and not task.done():
+            task.cancel()
+            return True
+        return False
 
     def subscribe(self, job_id: str) -> asyncio.Queue:
         q: asyncio.Queue[Optional[str]] = asyncio.Queue()
@@ -139,7 +149,7 @@ class BuildQueue:
             pass
 
     def cancel_all(self) -> None:
-        for task in list(self._tasks):
+        for task in list(self._tasks.values()):
             task.cancel()
 
     async def _emit(self, job_id: str, line: Optional[str]) -> None:
@@ -175,6 +185,10 @@ class BuildQueue:
             await proc.wait()
             return proc.returncode
 
+        # Git identity required for merge commits
+        git_env = {**os.environ, "GIT_AUTHOR_NAME": "builder", "GIT_AUTHOR_EMAIL": "builder@meshcore",
+                   "GIT_COMMITTER_NAME": "builder", "GIT_COMMITTER_EMAIL": "builder@meshcore"}
+
         try:
             await self._emit(job.id, f"=== Cloning MeshCore @ {job.ref} ===")
             rc = await run(
@@ -185,24 +199,57 @@ class BuildQueue:
             if rc != 0:
                 raise RuntimeError(f"git clone failed (exit {rc})")
 
+            for pr in job.prs:
+                await self._emit(job.id, f"=== Merging PR #{pr} ===")
+                rc = await run("git", "fetch", "--depth", "1", "origin",
+                               f"refs/pull/{pr}/head", env=git_env)
+                if rc != 0:
+                    raise RuntimeError(f"git fetch failed for PR #{pr}")
+
+                # Deepen both sides until the merge base is reachable
+                depth = 1
+                while True:
+                    proc = await asyncio.create_subprocess_exec(
+                        "git", "merge-base", "HEAD", "FETCH_HEAD",
+                        cwd=srcdir, stdout=asyncio.subprocess.DEVNULL,
+                        stderr=asyncio.subprocess.DEVNULL,
+                    )
+                    await proc.wait()
+                    if proc.returncode == 0:
+                        break
+                    depth *= 2
+                    if depth > 4096:
+                        raise RuntimeError(f"Could not find merge base for PR #{pr}")
+                    await run("git", "fetch", "--deepen", str(depth), "origin",
+                              f"refs/pull/{pr}/head", env=git_env)
+                    await run("git", "fetch", "--deepen", str(depth), "origin",
+                              job.ref, env=git_env)
+
+                rc = await run("git", "merge", "--no-edit", "FETCH_HEAD", env=git_env)
+                if rc != 0:
+                    raise RuntimeError(f"PR #{pr} has conflicts with the current tree")
+
             await self._emit(job.id, "=== Applying patch ===")
             from app.patcher import apply as patch
             patch(srcdir)
             await self._emit(job.id, "Patch applied.")
 
-            # Tags are "repeater-vX.Y.Z"; branches get the SHA for traceability
+            # Build version label for the output filename
+            sha_proc = await asyncio.create_subprocess_exec(
+                "git", "rev-parse", "--short", "HEAD",
+                cwd=srcdir,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+            )
+            sha_out, _ = await sha_proc.communicate()
+            sha = sha_out.decode().strip()
+
             _tag_prefix = "repeater-"
-            if job.ref.startswith(_tag_prefix):
-                version_label = job.ref[len(_tag_prefix):]
+            base_label = job.ref[len(_tag_prefix):] if job.ref.startswith(_tag_prefix) else job.ref
+            pr_suffix = "".join(f"+pr{p}" for p in job.prs)
+            if job.prs or not job.ref.startswith(_tag_prefix):
+                version_label = f"{base_label}{pr_suffix}-{sha}"
             else:
-                sha_proc = await asyncio.create_subprocess_exec(
-                    "git", "rev-parse", "--short", "HEAD",
-                    cwd=srcdir,
-                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
-                )
-                sha_out, _ = await sha_proc.communicate()
-                sha = sha_out.decode().strip()
-                version_label = f"{job.ref}-{sha}" if sha else job.ref
+                version_label = base_label
 
             await self._emit(job.id, f"=== Building {job.env} ===")
             build_env = {**os.environ, "PLATFORMIO_BUILD_FLAGS": job.build_flags}
@@ -228,12 +275,18 @@ class BuildQueue:
             job.status = BuildStatus.COMPLETED
             await self._emit(job.id, f"=== Build complete: {dest.name} ===")
 
+        except asyncio.CancelledError:
+            job.status = BuildStatus.CANCELLED
+            await self._emit(job.id, "=== Build cancelled ===")
+            await self._emit(job.id, None)
+            raise
         except Exception as exc:
             job.status = BuildStatus.FAILED
             await self._emit(job.id, f"=== Build failed: {exc} ===")
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
-            await self._emit(job.id, None)
+            if job.status != BuildStatus.CANCELLED:
+                await self._emit(job.id, None)
 
 
 queue = BuildQueue()
@@ -244,5 +297,6 @@ def make_job(req: BuildRequest) -> BuildJob:
         id=str(uuid.uuid4()),
         env=req.env,
         ref=req.ref,
+        prs=list(req.prs),
         build_flags=build_flags_for(req),
     )

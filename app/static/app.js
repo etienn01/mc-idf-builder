@@ -4,25 +4,44 @@
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
-let allEnvs = [];   // [{board, envs: [{env_name, firmware_type}]}]
+let allEnvs = [];   // [{board, envs: [{env_name, firmware_type, platform}]}]
 let currentBuildId = null;
 let eventSource = null;
 
 // ---------------------------------------------------------------------------
+// Suggested PRs
+// ---------------------------------------------------------------------------
+const SUGGESTED_PRS = {
+  repeater: [
+    { number: 1687, title: 'Power saving for ESP32 repeaters' },
+    { number: 2140, title: 'CLI control for LoRa FEM LNA', boards: ['heltec_v4', 'heltec_t096', 'heltec_tracker_v2'] },
+  ],
+  companion: [
+    { number: 1686, title: 'Short sleeps when phone disconnects' },
+    { number: 2286, title: 'Power saving for nRF52 companions (+30% battery)', platform: 'nordicnrf52' },
+  ],
+};
+
+// ---------------------------------------------------------------------------
 // DOM refs
 // ---------------------------------------------------------------------------
-const refSelect   = document.getElementById('ref-select');
-const boardSel    = document.getElementById('board-select');
-const typeSel     = document.getElementById('type-select');
-const regionSec   = document.getElementById('region-section');
-const regionRows  = document.getElementById('region-rows');
-const resetBtn    = document.getElementById('reset-regions-btn');
-const locationSec = document.getElementById('location-section');
-const wifiSec     = document.getElementById('wifi-section');
-const buildBtn    = document.getElementById('build-btn');
-const logSec      = document.getElementById('log-section');
-const logOut      = document.getElementById('log-output');
-const dlLink      = document.getElementById('download-link');
+const refSelect    = document.getElementById('ref-select');
+const boardSel     = document.getElementById('board-select');
+const typeSel      = document.getElementById('type-select');
+const patchSec     = document.getElementById('patch-section');
+const suggestedPRs = document.getElementById('suggested-prs');
+const customPRs    = document.getElementById('custom-prs');
+const addPrBtn     = document.getElementById('add-pr-btn');
+const regionSec    = document.getElementById('region-section');
+const regionRows   = document.getElementById('region-rows');
+const resetBtn     = document.getElementById('reset-regions-btn');
+const locationSec  = document.getElementById('location-section');
+const wifiSec      = document.getElementById('wifi-section');
+const buildBtn     = document.getElementById('build-btn');
+const cancelBtn    = document.getElementById('cancel-btn');
+const logSec       = document.getElementById('log-section');
+const logOut       = document.getElementById('log-output');
+const dlLink       = document.getElementById('download-link');
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -165,6 +184,62 @@ document.getElementById('add-region-btn').addEventListener('click', () => {
 resetBtn.addEventListener('click', loadDefaultRegions);
 
 // ---------------------------------------------------------------------------
+// PR section
+// ---------------------------------------------------------------------------
+
+function currentPlatform() {
+  const board = boardSel.value;
+  const group = allEnvs.find(g => g.board === board);
+  if (!group) return '';
+  const env = group.envs.find(e => e.env_name === typeSel.value);
+  return env ? env.platform : '';
+}
+
+function renderSuggestedPRs() {
+  const ftype = isRepeater() ? 'repeater' : 'companion';
+  const platform = currentPlatform();
+  const board = boardSel.value.toLowerCase();
+  const list = SUGGESTED_PRS[ftype] || [];
+  const visible = list.filter(pr =>
+    (!pr.platform || pr.platform === platform) &&
+    (!pr.boards || pr.boards.some(b => board.includes(b)))
+  );
+
+  suggestedPRs.innerHTML = '';
+  for (const pr of visible) {
+    const label = document.createElement('label');
+    label.className = 'pr-suggested';
+    label.innerHTML = `<input type="checkbox" value="${pr.number}"> #${pr.number} — ${pr.title}`;
+    suggestedPRs.appendChild(label);
+  }
+}
+
+function addCustomPRRow(value = '') {
+  const row = document.createElement('div');
+  row.className = 'pr-custom-row';
+  row.innerHTML = `
+    <input type="number" class="pr-number-input" placeholder="PR number" min="1" value="${value}">
+    <button type="button" class="btn-remove" title="Remove">✕</button>
+  `;
+  row.querySelector('.btn-remove').addEventListener('click', () => row.remove());
+  customPRs.appendChild(row);
+}
+
+addPrBtn.addEventListener('click', () => addCustomPRRow());
+
+function collectPRs() {
+  const nums = new Set();
+  for (const cb of suggestedPRs.querySelectorAll('input[type=checkbox]:checked')) {
+    nums.add(parseInt(cb.value));
+  }
+  for (const input of customPRs.querySelectorAll('.pr-number-input')) {
+    const v = parseInt(input.value);
+    if (v > 0) nums.add(v);
+  }
+  return [...nums];
+}
+
+// ---------------------------------------------------------------------------
 // Board / type selectors
 // ---------------------------------------------------------------------------
 
@@ -195,6 +270,7 @@ function onTypeChange() {
   locationSec.hidden = !rep;
   wifiSec.hidden = !isWifiCompanion();
   if (rep) loadDefaultRegions();
+  renderSuggestedPRs();
 }
 
 boardSel.addEventListener('change', onBoardChange);
@@ -233,6 +309,7 @@ function startBuild() {
   const body = {
     env: currentEnvName(),
     ref: refSelect.value,
+    prs: collectPRs(),
     advert_name: document.getElementById('advert-name').value || undefined,
     admin_password: document.getElementById('admin-password').value || undefined,
     wifi_ssid: document.getElementById('wifi-ssid').value || undefined,
@@ -250,6 +327,7 @@ function startBuild() {
   dlLink.hidden = true;
   logSec.hidden = false;
   buildBtn.disabled = true;
+  cancelBtn.hidden = false;
 
   if (eventSource) { eventSource.close(); eventSource = null; }
 
@@ -261,11 +339,13 @@ function startBuild() {
     .then(r => r.ok ? r.json() : r.json().then(e => Promise.reject(e)))
     .then(({ build_id }) => {
       currentBuildId = build_id;
+      localStorage.setItem('buildId', build_id);
       streamLogs(build_id);
     })
     .catch(err => {
       appendLog('Error: ' + (err.detail ?? JSON.stringify(err)));
       buildBtn.disabled = false;
+      cancelBtn.hidden = true;
     });
 }
 
@@ -286,6 +366,7 @@ function streamLogs(buildId) {
     eventSource.close();
     eventSource = null;
     buildBtn.disabled = false;
+    cancelBtn.hidden = true;
   };
 }
 
@@ -294,6 +375,8 @@ function checkStatus(buildId) {
     .then(r => r.json())
     .then(({ status, download_url, filename }) => {
       buildBtn.disabled = false;
+      cancelBtn.hidden = true;
+      localStorage.removeItem('buildId');
       if (status === 'completed' && download_url) {
         dlLink.href = download_url;
         dlLink.textContent = `Download ${filename ?? currentEnvName() + '.bin'}`;
@@ -302,11 +385,35 @@ function checkStatus(buildId) {
     });
 }
 
+cancelBtn.addEventListener('click', () => {
+  if (!currentBuildId) return;
+  fetch(`/api/builds/${currentBuildId}`, { method: 'DELETE' });
+});
+
 buildBtn.addEventListener('click', startBuild);
 
 // ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
+
+// Reconnect to an in-progress build after page reload
+const savedBuildId = localStorage.getItem('buildId');
+if (savedBuildId) {
+  fetch(`/api/builds/${savedBuildId}`)
+    .then(r => r.ok ? r.json() : null)
+    .then(data => {
+      if (!data || !['pending', 'running'].includes(data.status)) {
+        localStorage.removeItem('buildId');
+        return;
+      }
+      currentBuildId = savedBuildId;
+      logSec.hidden = false;
+      buildBtn.disabled = true;
+      cancelBtn.hidden = false;
+      appendLog(`Reconnected to build ${savedBuildId.slice(0, 8)}…`);
+      streamLogs(savedBuildId);
+    });
+}
 
 fetch('/api/environments')
   .then(r => r.json())
