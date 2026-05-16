@@ -169,11 +169,35 @@ function addRegionRow(name = '', parent = '', flood = 'allow') {
     rebuildParentDropdowns();
     updateResetBtn();
   });
-  tr.querySelector('.region-parent').addEventListener('change', updateResetBtn);
+  tr.querySelector('.region-parent').addEventListener('change', () => {
+    const sel = tr.querySelector('.region-parent');
+    const myName = tr.querySelector('.region-name').value.trim();
+    const newParent = sel.value;
+    if (newParent && myName) {
+      // Walk up from newParent to check for a cycle
+      const rows = Array.from(regionRows.querySelectorAll('tr'));
+      const parentOf = Object.fromEntries(rows.map(r => [
+        r.querySelector('.region-name').value.trim(),
+        r.querySelector('.region-parent').value,
+      ]));
+      let cur = newParent;
+      const visited = new Set([myName]);
+      while (cur) {
+        if (visited.has(cur)) { sel.value = ''; break; }
+        visited.add(cur);
+        cur = parentOf[cur] ?? '';
+      }
+    }
+    rebuildParentDropdowns();
+    updateResetBtn();
+  });
   tr.querySelector('.region-flood').addEventListener('change', updateResetBtn);
   regionRows.appendChild(tr);
   rebuildParentDropdowns();
-  if (parent) tr.querySelector('.region-parent').value = parent;
+  if (parent) {
+    tr.querySelector('.region-parent').value = parent;
+    rebuildParentDropdowns();
+  }
 }
 
 document.getElementById('add-region-btn').addEventListener('click', () => {
@@ -294,6 +318,22 @@ function collectRegions() {
     }
     result.push({ name, parent, flood });
   }
+
+  // Detect cycles
+  const parentOf = Object.fromEntries(result.map(r => [r.name, r.parent]));
+  for (const r of result) {
+    let cur = r.parent;
+    const visited = new Set([r.name]);
+    while (cur) {
+      if (visited.has(cur)) {
+        alert(`Region cycle detected: "${r.name}" is part of a circular parent chain.`);
+        return null;
+      }
+      visited.add(cur);
+      cur = parentOf[cur] ?? null;
+    }
+  }
+
   return result;
 }
 
