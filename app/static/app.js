@@ -232,7 +232,8 @@ function renderSuggestedPRs() {
   for (const pr of visible) {
     const label = document.createElement('label');
     label.className = 'pr-suggested';
-    label.innerHTML = `<input type="checkbox" value="${pr.number}"> #${pr.number} — ${pr.title}`;
+    const url = `https://github.com/meshcore-dev/MeshCore/pull/${pr.number}`;
+    label.innerHTML = `<input type="checkbox" value="${pr.number}"> <a href="${url}" target="_blank" rel="noopener" onclick="event.stopPropagation()">#${pr.number}</a> ${pr.title}`;
     suggestedPRs.appendChild(label);
   }
 }

@@ -83,8 +83,53 @@ def prettify_board_name(board_id: str) -> str:
     return " ".join(_prettify_token(p) for p in board_id.split("_"))
 
 
+def _normalize_platform(raw: str) -> str:
+    """Extract a short platform id from a raw platformio platform value.
+
+    Handles:
+      nordicnrf52                                 -> nordicnrf52
+      platformio/espressif32@6.11.0               -> espressif32
+      https://github.com/.../platform-raspberrypi.git -> raspberrypi
+    """
+    raw = raw.strip().lower().split("@")[0].strip()
+    if "/" in raw:
+        name = raw.rstrip("/").rsplit("/", 1)[-1]
+        name = re.sub(r"\.(zip|git)$", "", name)
+        if name.startswith("platform-"):
+            name = name[len("platform-"):]
+        return name
+    return raw
+
+
+def _resolve_platform(section: str, variant_cp: RawConfigParser,
+                      root_cp: RawConfigParser, visited: set | None = None) -> str:
+    """Walk extends chains across both the variant and root ini to find platform."""
+    if visited is None:
+        visited = set()
+    if section in visited:
+        return ""
+    visited.add(section)
+
+    for cp in (variant_cp, root_cp):
+        if not cp.has_section(section):
+            continue
+        if cp.has_option(section, "platform"):
+            return _normalize_platform(cp.get(section, "platform"))
+        if cp.has_option(section, "extends"):
+            parent = cp.get(section, "extends").strip()
+            result = _resolve_platform(parent, variant_cp, root_cp, visited)
+            if result:
+                return result
+
+    return ""
+
+
 def load_environments(meshcore_path: str = None) -> list[BoardEnv]:
     path = meshcore_path or os.environ.get("MESHCORE_PATH", "/meshcore")
+
+    root_cp = RawConfigParser(strict=False)
+    root_cp.read(os.path.join(path, "platformio.ini"))
+
     pattern = os.path.join(path, "variants", "*", "platformio.ini")
     envs: list[BoardEnv] = []
 
@@ -99,7 +144,7 @@ def load_environments(meshcore_path: str = None) -> list[BoardEnv]:
             role = _firmware_type(env_name)
             if role is None:
                 continue
-            platform = cp.get(section, "platform", fallback="").strip().lower()
+            platform = _resolve_platform(section, cp, root_cp)
             variant = _variant_from_env(env_name, board_id)
             envs.append(BoardEnv(
                 env_name=env_name,
