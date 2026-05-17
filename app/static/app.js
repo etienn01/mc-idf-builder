@@ -4,7 +4,7 @@
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
-let allEnvs = [];   // [{board, envs: [{env_name, firmware_type, platform}]}]
+let allEnvs = [];   // [{id, name, envs: [{env_name, role, label, platform}]}]
 let currentBuildId = null;
 let eventSource = null;
 
@@ -13,7 +13,7 @@ let eventSource = null;
 // ---------------------------------------------------------------------------
 const SUGGESTED_PRS = {
   repeater: [
-    { number: 1687, title: 'Power saving for ESP32 repeaters' },
+    { number: 1687, title: 'Power saving for ESP32 repeaters', platform: 'espressif32' },
     { number: 2140, title: 'CLI control for LoRa FEM LNA', boards: ['heltec_v4', 'heltec_t096', 'heltec_tracker_v2'] },
   ],
   companion: [
@@ -53,7 +53,7 @@ function regionNameValid(name) {
 
 function currentBoardEnvs() {
   const board = boardSel.value;
-  const group = allEnvs.find(g => g.board === board);
+  const group = allEnvs.find(g => g.id === board);
   return group ? group.envs : [];
 }
 
@@ -63,12 +63,12 @@ function currentEnvName() {
 
 function isRepeater() {
   const env = currentBoardEnvs().find(e => e.env_name === typeSel.value);
-  return env && env.firmware_type === 'repeater';
+  return env && env.role === 'repeater';
 }
 
 function isWifiCompanion() {
   const env = currentBoardEnvs().find(e => e.env_name === typeSel.value);
-  return env && env.firmware_type === 'companion_wifi';
+  return env && env.role === 'companion_wifi';
 }
 
 // ---------------------------------------------------------------------------
@@ -212,8 +212,7 @@ resetBtn.addEventListener('click', loadDefaultRegions);
 // ---------------------------------------------------------------------------
 
 function currentPlatform() {
-  const board = boardSel.value;
-  const group = allEnvs.find(g => g.board === board);
+  const group = allEnvs.find(g => g.id === boardSel.value);
   if (!group) return '';
   const env = group.envs.find(e => e.env_name === typeSel.value);
   return env ? env.platform : '';
@@ -269,21 +268,15 @@ function collectPRs() {
 
 function populateBoardSelect() {
   boardSel.innerHTML = allEnvs
-    .map(g => `<option value="${g.board}">${g.board}</option>`)
+    .map(g => `<option value="${g.id}">${g.name}</option>`)
     .join('');
   onBoardChange();
 }
 
 function onBoardChange() {
   const envs = currentBoardEnvs();
-  const LABELS = {
-    repeater: 'Repeater',
-    companion_usb: 'Companion radio (USB)',
-    companion_ble: 'Companion radio (BLE)',
-    companion_wifi: 'Companion radio (WiFi)',
-  };
   typeSel.innerHTML = envs
-    .map(e => `<option value="${e.env_name}">${LABELS[e.firmware_type] ?? e.firmware_type}</option>`)
+    .map(e => `<option value="${e.env_name}">${e.label}</option>`)
     .join('');
   onTypeChange();
 }
@@ -401,7 +394,7 @@ function streamLogs(buildId) {
       checkStatus(buildId);
       return;
     }
-    appendLog(e.data);
+    appendLog(JSON.parse(e.data));
   };
 
   eventSource.onerror = () => {

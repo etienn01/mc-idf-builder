@@ -27,7 +27,7 @@ from app.builder import (
     validate_ref,
     validate_region_name,
 )
-from app.parser import group_by_board, load_environments
+from app.parser import group_by_folder, load_environments, prettify_board_name
 
 # ---------------------------------------------------------------------------
 # Startup / shutdown
@@ -149,16 +149,17 @@ class BuildRequestModel(BaseModel):
 
 @app.get("/api/environments")
 def get_environments():
-    grouped = group_by_board(_envs)
+    grouped = group_by_folder(_envs)
     return [
         {
-            "board": board_variant,
+            "id": board_id,
+            "name": prettify_board_name(board_id),
             "envs": [
-                {"env_name": e.env_name, "firmware_type": e.firmware_type, "platform": e.platform}
+                {"env_name": e.env_name, "role": e.role, "label": e.label, "platform": e.platform}
                 for e in envs
             ],
         }
-        for board_variant, envs in grouped.items()
+        for board_id, envs in grouped.items()
     ]
 
 
@@ -278,7 +279,7 @@ async def stream_logs(build_id: str):
 
     async def generate():
         for line in list(job.log_lines):
-            yield f"data: {json.dumps(line)}\n\n"
+            yield f"data: {json.dumps(line, ensure_ascii=False)}\n\n"
 
         if job.status in (BuildStatus.COMPLETED, BuildStatus.FAILED):
             yield "data: [DONE]\n\n"
@@ -295,7 +296,7 @@ async def stream_logs(build_id: str):
                 if line is None:
                     yield "data: [DONE]\n\n"
                     return
-                yield f"data: {json.dumps(line)}\n\n"
+                yield f"data: {json.dumps(line, ensure_ascii=False)}\n\n"
         finally:
             queue.unsubscribe(build_id, sub)
 
