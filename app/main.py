@@ -84,9 +84,11 @@ app = FastAPI(title="MeshCore Firmware Builder", lifespan=lifespan, docs_url=Non
 
 _SAFE_STR = r'^[^"\\]*$'
 
+_REGION_NAME_PAT = r"^[a-zA-Z0-9\-\$\#]{1,30}$"
+
 class RegionEntryModel(BaseModel):
-    name: str = Field(pattern=r"^[a-zA-Z0-9\-\$\#]{1,30}$")
-    parent: str | None = None
+    name: str = Field(pattern=_REGION_NAME_PAT)
+    parent: str | None = Field(None, pattern=_REGION_NAME_PAT)
     flood: Literal["allow", "deny"]
 
 
@@ -111,7 +113,11 @@ class BuildRequestModel(BaseModel):
     def check_region_parents(self) -> "BuildRequestModel":
         names = {r.name for r in self.regions}
         for r in self.regions:
-            if r.parent is not None and r.parent not in names:
+            if r.parent is None:
+                continue
+            if r.parent == r.name:
+                raise ValueError(f"Region {r.name!r} cannot be its own parent")
+            if r.parent not in names:
                 raise ValueError(f"Region parent {r.parent!r} does not exist in regions list")
         return self
 
