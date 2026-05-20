@@ -1,0 +1,28 @@
+[tool.poetry]
+name = "meshcore-idf-builder"
+version = "0.1.0"
+description = "Self-hosted MeshCore firmware builder"
+authors = []
+packages = [{ include = "app" }]
+
+[tool.poetry.dependencies]
+python = "^3.14"
+fastapi = { version = "*", extras = ["standard"] }
+
+[tool.poetry.group.dev.dependencies]
+ruff = "*"
+ty = "*"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "RUF"]
+
+[tool.ty.environment]
+python-version = "3.14"

@@ -35,20 +35,26 @@
 
     <fieldset id="region-section" hidden>
       <legend>Regions</legend>
-      <table id="region-table">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Parent</th>
-            <th>Flood</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody id="region-rows"></tbody>
-      </table>
-      <div id="region-actions">
-        <button type="button" id="add-region-btn">+ Add region</button>
-        <button type="button" id="reset-regions-btn" hidden>Reset</button>
+      <label id="regions-enable-label">
+        <input type="checkbox" id="regions-enable"> Preconfigure default regions
+      </label>
+      <p id="regions-note">Applied on boot if no regions are configured on the device.</p>
+      <div id="region-body" hidden>
+        <table id="region-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Parent</th>
+              <th>Flood</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="region-rows"></tbody>
+        </table>
+        <div id="region-actions">
+          <button type="button" id="add-region-btn">+ Add region</button>
+          <button type="button" id="reset-regions-btn" hidden>Reset</button>
+        </div>
       </div>
     </fieldset>
 

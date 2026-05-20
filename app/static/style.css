@@ -77,6 +77,21 @@ select:focus {
 }
 
 /* Regions */
+#regions-enable-label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.82rem;
+  margin-bottom: 0.3rem;
+  cursor: pointer;
+}
+
+#regions-note {
+  font-size: 0.75rem;
+  color: #888;
+  margin-bottom: 0.5rem;
+}
+
 #region-section {
   border: 1px solid #e0e0e0;
   border-radius: 4px;

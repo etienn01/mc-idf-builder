@@ -1,6 +1,5 @@
 """Apply the DEFAULT_REGION_CFG patch to MyMesh.cpp."""
 import os
-import sys
 
 MARKER = "// BEGIN_DEFAULT_REGION_CFG_PATCH"
 
@@ -47,11 +46,11 @@ LOAD_LINE = "  region_map.load(_fs);"
 BEGIN_FUNC = "void MyMesh::begin(FILESYSTEM *fs) {"
 
 
-def apply(meshcore_path: str = None) -> None:
+def apply(meshcore_path: str | None = None) -> None:
     path = meshcore_path or os.environ.get("MESHCORE_PATH", "/meshcore")
     target = os.path.join(path, "examples/simple_repeater/MyMesh.cpp")
 
-    with open(target, "r") as f:
+    with open(target) as f:
         content = f.read()
 
     if MARKER in content:

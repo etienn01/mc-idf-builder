@@ -32,9 +32,11 @@ const patchSec     = document.getElementById('patch-section');
 const suggestedPRs = document.getElementById('suggested-prs');
 const customPRs    = document.getElementById('custom-prs');
 const addPrBtn     = document.getElementById('add-pr-btn');
-const regionSec    = document.getElementById('region-section');
-const regionRows   = document.getElementById('region-rows');
-const resetBtn     = document.getElementById('reset-regions-btn');
+const regionSec     = document.getElementById('region-section');
+const regionsEnable = document.getElementById('regions-enable');
+const regionBody    = document.getElementById('region-body');
+const regionRows    = document.getElementById('region-rows');
+const resetBtn      = document.getElementById('reset-regions-btn');
 const locationSec  = document.getElementById('location-section');
 const wifiSec      = document.getElementById('wifi-section');
 const buildBtn     = document.getElementById('build-btn');
@@ -207,6 +209,13 @@ document.getElementById('add-region-btn').addEventListener('click', () => {
 
 resetBtn.addEventListener('click', loadDefaultRegions);
 
+regionsEnable.addEventListener('change', () => {
+  regionBody.hidden = !regionsEnable.checked;
+  if (regionsEnable.checked && regionRows.querySelectorAll('tr').length === 0) {
+    loadDefaultRegions();
+  }
+});
+
 // ---------------------------------------------------------------------------
 // PR section
 // ---------------------------------------------------------------------------
@@ -287,7 +296,11 @@ function onTypeChange() {
   regionSec.hidden = !rep;
   locationSec.hidden = !rep;
   wifiSec.hidden = !isWifiCompanion();
-  if (rep) loadDefaultRegions();
+  if (rep) {
+    regionsEnable.checked = false;
+    regionBody.hidden = true;
+    regionRows.innerHTML = '';
+  }
   renderSuggestedPRs();
 }
 
@@ -299,6 +312,7 @@ typeSel.addEventListener('change', onTypeChange);
 // ---------------------------------------------------------------------------
 
 function collectRegions() {
+  if (!regionsEnable.checked) return [];
   const rows = Array.from(regionRows.querySelectorAll('tr'));
   const result = [];
   for (const row of rows) {

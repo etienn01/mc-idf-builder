@@ -1,20 +1,16 @@
-FROM --platform=linux/amd64 python:3.12-slim
+FROM python:3.14-slim
 
-ARG MESHCORE_REPO=https://github.com/meshcore-dev/MeshCore.git
-ARG MESHCORE_REF=main
-
-ENV MESHCORE_REPO=${MESHCORE_REPO} \
-    MESHCORE_REF=${MESHCORE_REF} \
-    PLATFORMIO_HOME_DIR=/pio-home
+ENV PLATFORMIO_HOME_DIR=/pio-home
 
 RUN apt-get update && apt-get install -y --no-install-recommends git && \
     rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir platformio
+RUN pip install --no-cache-dir platformio poetry
 
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY pyproject.toml poetry.lock* ./
+RUN poetry config virtualenvs.create false && \
+    poetry install --only main --no-root --no-interaction
 COPY app/ ./app/
 
 RUN groupadd -g 1000 builder && \
@@ -24,4 +20,4 @@ RUN groupadd -g 1000 builder && \
 
 USER 1000:1000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["fastapi", "run", "app/main.py", "--port", "8000"]

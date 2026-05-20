@@ -124,7 +124,7 @@ def _resolve_platform(section: str, variant_cp: RawConfigParser,
     return ""
 
 
-def load_environments(meshcore_path: str = None) -> list[BoardEnv]:
+def load_environments(meshcore_path: str | None = None) -> list[BoardEnv]:
     path = meshcore_path or os.environ.get("MESHCORE_PATH", "/meshcore")
 
     root_cp = RawConfigParser(strict=False)

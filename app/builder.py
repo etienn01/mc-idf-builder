@@ -1,16 +1,15 @@
-"""Concurrent build queue: isolated clone per build, shared pio package cache."""
 import asyncio
 import os
-import re
 import shutil
 import tempfile
+import time
 import uuid
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
-from typing import Optional
+from typing import Literal
 
-import time
+from app.patcher import apply as _patch
 
 MESHCORE_REPO = os.environ.get("MESHCORE_REPO", "https://github.com/meshcore-dev/MeshCore.git")
 DOWNLOADS_DIR = Path("downloads")
@@ -25,20 +24,9 @@ _LORA_FLAGS = [
     "-D LORA_CR=8",
 ]
 
-_REGION_NAME_RE = re.compile(r"^[a-z0-9\-\$\#]+$")
-_REF_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._/\-]{0,99}$")
 
 
-def _cleanup_old_downloads() -> None:
-    if not DOWNLOADS_DIR.exists():
-        return
-    cutoff = time.time() - DOWNLOAD_TTL_HOURS * 3600
-    for entry in DOWNLOADS_DIR.iterdir():
-        if entry.is_dir() and entry.stat().st_mtime < cutoff:
-            shutil.rmtree(entry, ignore_errors=True)
-
-
-class BuildStatus(str, Enum):
+class BuildStatus(StrEnum):
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -49,19 +37,19 @@ class BuildStatus(str, Enum):
 @dataclass
 class RegionEntry:
     name: str
-    parent: Optional[str]
-    flood: str  # "allow" | "deny"
+    parent: str | None
+    flood: Literal["allow", "deny"]
 
 
 @dataclass
 class BuildRequest:
     env: str
-    ref: str = "main"
+    ref: str
     prs: list[int] = field(default_factory=list)
     advert_name: str = ""
     admin_password: str = ""
-    advert_lat: Optional[float] = None
-    advert_lon: Optional[float] = None
+    advert_lat: float | None = None
+    advert_lon: float | None = None
     wifi_ssid: str = ""
     wifi_pwd: str = ""
     regions: list[RegionEntry] = field(default_factory=list)
@@ -76,11 +64,10 @@ class BuildJob:
     build_flags: str
     status: BuildStatus = BuildStatus.PENDING
     log_lines: list[str] = field(default_factory=list)
-    firmware_path: Optional[Path] = None
+    firmware_path: Path | None = None
+    completed_at: float | None = None
 
 
-def _sanitize(s: str, max_len: int) -> str:
-    return re.sub(r"""["'\\`]""", "", s)[:max_len]
 
 
 def _encode_regions(regions: list[RegionEntry]) -> str:
@@ -94,35 +81,23 @@ def _encode_regions(regions: list[RegionEntry]) -> str:
     return "\\x3b".join(parts)
 
 
-def validate_region_name(name: str) -> bool:
-    return bool(_REGION_NAME_RE.match(name)) and len(name) <= 30
-
-
-def validate_ref(ref: str) -> bool:
-    return bool(_REF_RE.match(ref))
-
 
 def build_flags_for(req: BuildRequest) -> str:
     flags = list(_LORA_FLAGS)
     if req.advert_name:
-        safe_name = _sanitize(req.advert_name, 31)
-        flags.append(f"-D ADVERT_NAME='\"{ safe_name }\"'")
+        flags.append(f"-D ADVERT_NAME='\"{ req.advert_name }\"'")
     if req.admin_password:
-        safe_pw = _sanitize(req.admin_password, 15)
-        flags.append(f"-D ADMIN_PASSWORD='\"{ safe_pw }\"'")
+        flags.append(f"-D ADMIN_PASSWORD='\"{ req.admin_password }\"'")
     if req.advert_lat is not None:
         flags.append(f"-D ADVERT_LAT={req.advert_lat:.6f}")
     if req.advert_lon is not None:
         flags.append(f"-D ADVERT_LON={req.advert_lon:.6f}")
     if req.wifi_ssid:
-        safe_ssid = _sanitize(req.wifi_ssid, 32)
-        flags.append(f"-D WIFI_SSID='\"{ safe_ssid }\"'")
+        flags.append(f"-D WIFI_SSID='\"{ req.wifi_ssid }\"'")
     if req.wifi_pwd:
-        safe_pwd = _sanitize(req.wifi_pwd, 63)
-        flags.append(f"-D WIFI_PWD='\"{ safe_pwd }\"'")
+        flags.append(f"-D WIFI_PWD='\"{ req.wifi_pwd }\"'")
     if req.regions:
-        cfg = _encode_regions(req.regions)
-        flags.append(f"-D DEFAULT_REGION_CFG='\"{ cfg }\"'")
+        flags.append(f"-D DEFAULT_REGION_CFG='\"{ _encode_regions(req.regions) }\"'")
     return " ".join(flags)
 
 
@@ -139,7 +114,7 @@ class BuildQueue:
         self._tasks[job.id] = task
         task.add_done_callback(lambda _: self._tasks.pop(job.id, None))
 
-    def get(self, job_id: str) -> Optional[BuildJob]:
+    def get(self, job_id: str) -> BuildJob | None:
         return self._jobs.get(job_id)
 
     def queue_depth(self) -> int:
@@ -156,7 +131,7 @@ class BuildQueue:
         return False
 
     def subscribe(self, job_id: str) -> asyncio.Queue:
-        q: asyncio.Queue[Optional[str]] = asyncio.Queue()
+        q: asyncio.Queue[str | None] = asyncio.Queue()
         self._subscribers.setdefault(job_id, []).append(q)
         return q
 
@@ -171,9 +146,26 @@ class BuildQueue:
         for task in list(self._tasks.values()):
             task.cancel()
 
-    async def _emit(self, job_id: str, line: Optional[str]) -> None:
+    def _cleanup(self) -> None:
+        cutoff = time.time() - DOWNLOAD_TTL_HOURS * 3600
+        if DOWNLOADS_DIR.exists():
+            for entry in DOWNLOADS_DIR.iterdir():
+                if entry.is_dir() and entry.stat().st_mtime < cutoff:
+                    shutil.rmtree(entry, ignore_errors=True)
+        for job_id, job in list(self._jobs.items()):
+            if (
+                job.status not in (BuildStatus.PENDING, BuildStatus.RUNNING)
+                and job.completed_at is not None
+                and job.completed_at < cutoff
+            ):
+                self._jobs.pop(job_id, None)
+
+    async def _emit(self, job_id: str, line: str | None) -> None:
         if line is not None:
-            self._jobs[job_id].log_lines.append(line)
+            log = self._jobs[job_id].log_lines
+            log.append(line)
+            if len(log) > 2000:
+                del log[0]
         for q in list(self._subscribers.get(job_id, [])):
             await q.put(line)
 
@@ -187,7 +179,7 @@ class BuildQueue:
         tmpdir = tempfile.mkdtemp(prefix=f"meshcore-{job.id[:8]}-")
         srcdir = os.path.join(tmpdir, "repo")
 
-        async def run(*args, cwd: str = srcdir, env: dict = None) -> int:
+        async def run(*args: str, cwd: str = srcdir, env: dict[str, str] | None = None) -> int:
             proc = await asyncio.create_subprocess_exec(
                 *args,
                 cwd=cwd,
@@ -195,6 +187,7 @@ class BuildQueue:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
             )
+            assert proc.stdout is not None
             async for raw in proc.stdout:
                 chunk = raw.decode(errors="replace")
                 # \r is used for in-place progress (e.g. git clone); keep only
@@ -203,11 +196,15 @@ class BuildQueue:
                 if parts:
                     await self._emit(job.id, parts[-1])
             await proc.wait()
+            assert proc.returncode is not None
             return proc.returncode
 
         # Git identity required for merge commits
-        git_env = {**os.environ, "GIT_AUTHOR_NAME": "builder", "GIT_AUTHOR_EMAIL": "builder@meshcore",
-                   "GIT_COMMITTER_NAME": "builder", "GIT_COMMITTER_EMAIL": "builder@meshcore"}
+        git_env = {
+            **os.environ,
+            "GIT_AUTHOR_NAME": "builder", "GIT_AUTHOR_EMAIL": "builder@meshcore",
+            "GIT_COMMITTER_NAME": "builder", "GIT_COMMITTER_EMAIL": "builder@meshcore",
+        }
 
         try:
             await self._emit(job.id, f"=== Cloning MeshCore @ {job.ref} ===")
@@ -250,8 +247,7 @@ class BuildQueue:
                     raise RuntimeError(f"PR #{pr} has conflicts with the current tree")
 
             await self._emit(job.id, "=== Applying patch ===")
-            from app.patcher import apply as patch
-            patch(srcdir)
+            _patch(srcdir)
             await self._emit(job.id, "Patch applied.")
 
             # Build version label for the output filename
@@ -305,9 +301,10 @@ class BuildQueue:
             await self._emit(job.id, f"=== Build failed: {exc} ===")
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
+            job.completed_at = time.time()
             if job.status != BuildStatus.CANCELLED:
                 await self._emit(job.id, None)
-            _cleanup_old_downloads()
+            self._cleanup()
 
 
 queue = BuildQueue()
