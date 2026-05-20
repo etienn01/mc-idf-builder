@@ -29,8 +29,11 @@
     <fieldset id="patch-section">
       <legend>Patches (PRs)</legend>
       <div id="suggested-prs"></div>
-      <div id="custom-prs"></div>
-      <button type="button" id="add-pr-btn">+ Add PR</button>
+      <ol id="pr-list"></ol>
+      <div class="pr-add-row">
+        <input type="number" id="custom-pr-input" placeholder="PR number" min="1">
+        <button type="button" id="add-pr-btn">+ Add</button>
+      </div>
     </fieldset>
 
     <fieldset id="region-section" hidden>
@@ -62,6 +65,7 @@
       <span>Device name</span>
       <input type="text" id="advert-name" placeholder="firmware default" maxlength="31">
     </label>
+    <p class="field-note">Applied on first boot only — ignored if the device already has saved settings.</p>
 
     <div id="wifi-section" hidden>
       <label>
@@ -79,6 +83,7 @@
         <span>Admin password</span>
         <input type="text" id="admin-password" placeholder="firmware default" maxlength="15">
       </label>
+      <p class="field-note">Applied on first boot only — ignored if the device already has saved settings.</p>
       <div class="row-2">
         <label>
           <span>Latitude</span>

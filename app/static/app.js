@@ -28,10 +28,11 @@ const SUGGESTED_PRS = {
 const refSelect    = document.getElementById('ref-select');
 const boardSel     = document.getElementById('board-select');
 const typeSel      = document.getElementById('type-select');
-const patchSec     = document.getElementById('patch-section');
-const suggestedPRs = document.getElementById('suggested-prs');
-const customPRs    = document.getElementById('custom-prs');
-const addPrBtn     = document.getElementById('add-pr-btn');
+const patchSec       = document.getElementById('patch-section');
+const suggestedPRs   = document.getElementById('suggested-prs');
+const prList         = document.getElementById('pr-list');
+const customPrInput  = document.getElementById('custom-pr-input');
+const addPrBtn       = document.getElementById('add-pr-btn');
 const regionSec     = document.getElementById('region-section');
 const regionsEnable = document.getElementById('regions-enable');
 const regionBody    = document.getElementById('region-body');
@@ -50,7 +51,7 @@ const dlLink       = document.getElementById('download-link');
 // ---------------------------------------------------------------------------
 
 function regionNameValid(name) {
-  return /^[a-z0-9\-\$\#]+$/.test(name) && name.length > 0 && name.length <= 30;
+  return /^[a-zA-Z0-9\-\$\#]+$/.test(name) && name.length > 0 && name.length <= 30;
 }
 
 function currentBoardEnvs() {
@@ -239,37 +240,71 @@ function renderSuggestedPRs() {
 
   suggestedPRs.innerHTML = '';
   for (const pr of visible) {
-    const label = document.createElement('label');
-    label.className = 'pr-suggested';
     const url = `https://github.com/meshcore-dev/MeshCore/pull/${pr.number}`;
-    label.innerHTML = `<input type="checkbox" value="${pr.number}"> <a href="${url}" target="_blank" rel="noopener" onclick="event.stopPropagation()">#${pr.number}</a> ${pr.title}`;
-    suggestedPRs.appendChild(label);
+    const lbl = document.createElement('label');
+    lbl.className = 'pr-suggested';
+
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.value = pr.number;
+
+    const title = document.createElement('span');
+    title.className = 'pr-suggested-title';
+    title.textContent = `#${pr.number} ${pr.title}`;
+
+    const link = document.createElement('a');
+    link.href = url;
+    link.target = '_blank';
+    link.rel = 'noopener';
+    link.className = 'pr-ext-link';
+    link.title = 'Open on GitHub';
+    link.textContent = '↗';
+    link.addEventListener('click', e => e.stopPropagation());
+
+    lbl.append(cb, title, link);
+    suggestedPRs.appendChild(lbl);
   }
 }
 
-function addCustomPRRow(value = '') {
-  const row = document.createElement('div');
-  row.className = 'pr-custom-row';
-  row.innerHTML = `
-    <input type="number" class="pr-number-input" placeholder="PR number" min="1" value="${value}">
-    <button type="button" class="btn-remove" title="Remove">✕</button>
-  `;
-  row.querySelector('.btn-remove').addEventListener('click', () => row.remove());
-  customPRs.appendChild(row);
+function addCustomPr(num) {
+  const existing = new Set([
+    ...Array.from(suggestedPRs.querySelectorAll('input[type="checkbox"]')).map(cb => parseInt(cb.value)),
+    ...Array.from(prList.querySelectorAll('li')).map(li => parseInt(li.dataset.pr)),
+  ]);
+  if (existing.has(num)) return;
+  const li = document.createElement('li');
+  li.dataset.pr = num;
+  const label = document.createElement('span');
+  label.className = 'pr-label';
+  label.textContent = `#${num}`;
+  const up = document.createElement('button');
+  up.type = 'button'; up.className = 'pr-move'; up.title = 'Move up'; up.textContent = '▲';
+  up.addEventListener('click', () => { const prev = li.previousElementSibling; if (prev) prList.insertBefore(li, prev); });
+  const dn = document.createElement('button');
+  dn.type = 'button'; dn.className = 'pr-move'; dn.title = 'Move down'; dn.textContent = '▼';
+  dn.addEventListener('click', () => { const next = li.nextElementSibling; if (next) prList.insertBefore(next, li); });
+  const rm = document.createElement('button');
+  rm.type = 'button'; rm.className = 'btn-remove'; rm.title = 'Remove'; rm.textContent = '✕';
+  rm.addEventListener('click', () => li.remove());
+  li.append(label, up, dn, rm);
+  prList.appendChild(li);
 }
 
-addPrBtn.addEventListener('click', () => addCustomPRRow());
+addPrBtn.addEventListener('click', () => {
+  const num = parseInt(customPrInput.value);
+  if (num > 0) { addCustomPr(num); customPrInput.value = ''; }
+});
+
+customPrInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') addPrBtn.click();
+});
 
 function collectPRs() {
-  const nums = new Set();
-  for (const cb of suggestedPRs.querySelectorAll('input[type=checkbox]:checked')) {
-    nums.add(parseInt(cb.value));
-  }
-  for (const input of customPRs.querySelectorAll('.pr-number-input')) {
-    const v = parseInt(input.value);
-    if (v > 0) nums.add(v);
-  }
-  return [...nums];
+  const suggested = Array.from(suggestedPRs.querySelectorAll('input[type="checkbox"]:checked'))
+    .map(cb => parseInt(cb.value));
+  const custom = Array.from(prList.querySelectorAll('li'))
+    .map(li => parseInt(li.dataset.pr));
+  return [...suggested, ...custom];
 }
 
 // ---------------------------------------------------------------------------
@@ -321,7 +356,7 @@ function collectRegions() {
     const flood  = row.querySelector('.region-flood').value;
     if (!name) continue;
     if (!regionNameValid(name)) {
-      alert(`Invalid region name: "${name}"\nUse lowercase letters, digits, -, $, # only.`);
+      alert(`Invalid region name: "${name}"\nUse letters, digits, -, $, # only (max 30 chars).`);
       return null;
     }
     result.push({ name, parent, flood });

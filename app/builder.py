@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 import shutil
 import tempfile
@@ -10,6 +11,8 @@ from pathlib import Path
 from typing import Literal
 
 from app.patcher import apply as _patch
+
+log = logging.getLogger(__name__)
 
 MESHCORE_REPO = os.environ.get("MESHCORE_REPO", "https://github.com/meshcore-dev/MeshCore.git")
 DOWNLOADS_DIR = Path("downloads")
@@ -290,15 +293,18 @@ class BuildQueue:
             job.firmware_path = dest
             job.status = BuildStatus.COMPLETED
             await self._emit(job.id, f"=== Build complete: {dest.name} ===")
+            log.info("[%s] completed: %s", job.id, dest.name)
 
         except asyncio.CancelledError:
             job.status = BuildStatus.CANCELLED
             await self._emit(job.id, "=== Build cancelled ===")
             await self._emit(job.id, None)
+            log.info("[%s] cancelled", job.id)
             raise
         except Exception as exc:
             job.status = BuildStatus.FAILED
             await self._emit(job.id, f"=== Build failed: {exc} ===")
+            log.error("[%s] failed: %s", job.id, exc)
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
             job.completed_at = time.time()

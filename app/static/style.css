@@ -76,6 +76,13 @@ select:focus {
   gap: 0.6rem;
 }
 
+.field-note {
+  font-size: 0.72rem;
+  color: #888;
+  margin-top: 2px;
+  margin-bottom: 0.9rem;
+}
+
 /* Regions */
 #regions-enable-label {
   display: flex;
@@ -189,26 +196,76 @@ select:focus {
   padding: 0 4px;
 }
 
+/* Suggested PRs — checkbox rows */
 .pr-suggested {
   display: flex;
-  align-items: baseline;
-  gap: 0.4rem;
-  font-size: 0.82rem;
+  align-items: center;
+  gap: 0.5rem;
   margin-bottom: 0.3rem;
+  font-size: 0.82rem;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.pr-suggested input[type="checkbox"] {
+  flex-shrink: 0;
+  margin: 0;
   cursor: pointer;
 }
 
-.pr-custom-row {
+.pr-suggested-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.pr-ext-link {
+  flex-shrink: 0;
+  color: #bbb;
+  font-size: 0.72rem;
+  text-decoration: none;
+  padding: 0 2px;
+}
+
+.pr-ext-link:hover { color: #0070f3; }
+
+/* Custom PR list */
+#pr-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.3rem 0 0.4rem;
+}
+
+#pr-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 2px 0;
+  font-size: 0.82rem;
+}
+
+.pr-label { flex: 1; color: #444; }
+
+.pr-move {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #ccc;
+  font-size: 0.6rem;
+  padding: 2px 2px;
+  line-height: 1;
+}
+
+.pr-move:hover { color: #333; }
+
+.pr-add-row {
   display: flex;
   align-items: center;
   gap: 0.4rem;
   margin-top: 0.4rem;
 }
 
-.pr-custom-row .pr-number-input {
-  width: auto;
-  flex: 1;
-}
+.pr-add-row input { flex: 1; width: auto; }
 
 #add-pr-btn {
   font-size: 0.78rem;
@@ -217,7 +274,7 @@ select:focus {
   border: none;
   cursor: pointer;
   padding: 0;
-  margin-top: 0.5rem;
+  white-space: nowrap;
 }
 
 #add-pr-btn:hover { text-decoration: underline; }

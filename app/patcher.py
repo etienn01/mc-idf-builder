@@ -1,5 +1,8 @@
 """Apply the DEFAULT_REGION_CFG patch to MyMesh.cpp."""
+import logging
 import os
+
+log = logging.getLogger(__name__)
 
 MARKER = "// BEGIN_DEFAULT_REGION_CFG_PATCH"
 
@@ -54,7 +57,7 @@ def apply(meshcore_path: str | None = None) -> None:
         content = f.read()
 
     if MARKER in content:
-        print(f"patcher: already applied, skipping {target}")
+        log.debug("patch already applied, skipping %s", target)
         return
 
     if BEGIN_FUNC not in content:
@@ -69,7 +72,7 @@ def apply(meshcore_path: str | None = None) -> None:
     with open(target, "w") as f:
         f.write(content)
 
-    print(f"patcher: patch applied to {target}")
+    log.debug("patch applied to %s", target)
 
 
 if __name__ == "__main__":

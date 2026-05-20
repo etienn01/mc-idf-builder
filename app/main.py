@@ -1,6 +1,7 @@
 """FastAPI web application for the MeshCore firmware builder."""
 import asyncio
 import json
+import logging
 import os
 import re
 import shutil
@@ -12,7 +13,7 @@ from typing import Annotated, Literal
 from fastapi import FastAPI, HTTPException, status
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.builder import (
     MAX_QUEUE_SIZE,
@@ -24,6 +25,12 @@ from app.builder import (
     queue,
 )
 from app.parser import group_by_folder, load_environments, prettify_board_name
+
+_app_logger = logging.getLogger("app")
+_app_logger.setLevel(logging.INFO)
+_app_logger.propagate = False
+_app_logger.addHandler(logging.StreamHandler())
+log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Startup / shutdown
@@ -59,7 +66,7 @@ async def lifespan(app: FastAPI):
         tmpdir = await _clone_for_discovery()
         _envs = load_environments(tmpdir)
     except Exception as exc:
-        print(f"WARNING: failed to load environments: {exc}")
+        log.warning("failed to load environments: %s", exc)
     finally:
         if tmpdir:
             shutil.rmtree(tmpdir, ignore_errors=True)
@@ -68,7 +75,7 @@ async def lifespan(app: FastAPI):
     queue.cancel_all()
 
 
-app = FastAPI(title="MeshCore Firmware Builder", lifespan=lifespan)
+app = FastAPI(title="MeshCore Firmware Builder", lifespan=lifespan, docs_url=None, redoc_url=None)
 
 # ---------------------------------------------------------------------------
 # Request / response models
@@ -99,6 +106,14 @@ class BuildRequestModel(BaseModel):
     @classmethod
     def deduplicate_prs(cls, v: list[int]) -> list[int]:
         return list(dict.fromkeys(v))
+
+    @model_validator(mode="after")
+    def check_region_parents(self) -> "BuildRequestModel":
+        names = {r.name for r in self.regions}
+        for r in self.regions:
+            if r.parent is not None and r.parent not in names:
+                raise ValueError(f"Region parent {r.parent!r} does not exist in regions list")
+        return self
 
 
 # ---------------------------------------------------------------------------
@@ -135,7 +150,7 @@ async def get_versions():
     )
     stdout, stderr = await proc.communicate()
     if proc.returncode != 0:
-        print(f"git ls-remote failed: {stderr.decode().strip()}")
+        log.warning("git ls-remote failed: %s", stderr.decode().strip())
 
     # Build ref → commit SHA map; prefer ^{} (dereferenced) SHA for annotated tags
     sha_map: dict[str, str] = {}
@@ -197,6 +212,12 @@ async def submit_build(body: BuildRequestModel):
         ],
     )
     job = make_job(req)
+    log.info(
+        "[%s] submitted env=%s ref=%s prs=%s regions=%s name=%r lat=%s lon=%s wifi=%s",
+        job.id, job.env, job.ref, job.prs,
+        [(r.name, r.parent, r.flood) for r in req.regions],
+        req.advert_name, req.advert_lat, req.advert_lon, bool(req.wifi_ssid),
+    )
     queue.submit(job)
     return {"build_id": job.id}
 
@@ -225,6 +246,7 @@ async def cancel_build(build_id: str):
     if job.status not in (BuildStatus.PENDING, BuildStatus.RUNNING):
         raise HTTPException(status.HTTP_409_CONFLICT, "Build is not cancellable")
     queue.cancel(build_id)
+    log.info("[%s] cancel requested", build_id)
     return {"build_id": build_id}
 
 
