@@ -6,13 +6,14 @@ from configparser import RawConfigParser
 from dataclasses import dataclass
 
 _SUFFIX_MAP = {
+    "_repeater_observer_mqtt": "repeater",
     "_repeater": "repeater",
     "_companion_radio_usb": "companion_usb",
     "_companion_radio_ble": "companion_ble",
     "_companion_radio_wifi": "companion_wifi",
 }
 
-_SKIP_IF_CONTAINS = ["_bridge_", "_kiss_modem", "_terminal_chat"]
+_SKIP_IF_CONTAINS = ["_bridge_", "_kiss_modem", "_terminal_chat", "_room_server", "_sensor"]
 
 _ROLE_LABELS = {
     "repeater": "Repeater",
@@ -21,7 +22,12 @@ _ROLE_LABELS = {
     "companion_wifi": "Companion (WiFi)",
 }
 
-_VARIANT_LABELS = {"tft": "TFT"}
+_VARIANT_LABELS = {"tft": "TFT", "observer_mqtt": "MQTT Observer"}
+
+# Suffixes that carry an implicit variant rather than encoding it in the name
+_SUFFIX_VARIANTS = {
+    "_repeater_observer_mqtt": "observer_mqtt",
+}
 
 # Brand tokens that need non-title-case treatment
 _BRAND_TOKENS = {"rak": "RAK", "lilygo": "LilyGo"}
@@ -51,6 +57,8 @@ def _variant_from_env(env_name: str, board_id: str) -> str:
     middle = env_name[len(board_id):]   # e.g. "_tft_repeater"
     for suffix in _SUFFIX_MAP:
         if middle.endswith(suffix):
+            if suffix in _SUFFIX_VARIANTS:
+                return _SUFFIX_VARIANTS[suffix]
             inner = middle[1:-len(suffix)]  # strip leading "_" and role suffix
             return inner
     return ""

@@ -13,7 +13,7 @@ let eventSource = null;
 // ---------------------------------------------------------------------------
 const SUGGESTED_PRS = {
   repeater: [
-    { number: 1687, title: 'Power saving for ESP32 repeaters', platform: 'espressif32' },
+    { number: 1687, title: 'Power saving for ESP32 repeaters', platform: 'espressif32', sources: ['official'] },
     { number: 2140, title: 'CLI control for LoRa FEM LNA', boards: ['heltec_v4', 'heltec_t096', 'heltec_tracker_v2'] },
   ],
   companion: [
@@ -25,6 +25,7 @@ const SUGGESTED_PRS = {
 // ---------------------------------------------------------------------------
 // DOM refs
 // ---------------------------------------------------------------------------
+const sourceSel    = document.getElementById('source-select');
 const refSelect    = document.getElementById('ref-select');
 const boardSel     = document.getElementById('board-select');
 const typeSel      = document.getElementById('type-select');
@@ -75,6 +76,7 @@ function isWifiCompanion() {
   const env = currentBoardEnvs().find(e => e.env_name === typeSel.value);
   return env && env.role === 'companion_wifi';
 }
+
 
 // ---------------------------------------------------------------------------
 // Region table
@@ -236,6 +238,7 @@ function renderSuggestedPRs() {
   const board = boardSel.value.toLowerCase();
   const list = SUGGESTED_PRS[ftype] || [];
   const visible = list.filter(pr =>
+    (!pr.sources || pr.sources.includes(sourceSel.value)) &&
     (!pr.platform || pr.platform === platform) &&
     (!pr.boards || pr.boards.some(b => board.includes(b)))
   );
@@ -314,9 +317,19 @@ function collectPRs() {
 // ---------------------------------------------------------------------------
 
 function populateBoardSelect() {
+  if (allEnvs.length === 0) {
+    const msg = sourceSel.value === 'mqtt_fork'
+      ? 'No MQTT Observer builds on this branch'
+      : 'No boards found';
+    boardSel.innerHTML = `<option disabled>${msg}</option>`;
+    typeSel.innerHTML = '';
+    buildBtn.disabled = true;
+    return;
+  }
   boardSel.innerHTML = allEnvs
     .map(g => `<option value="${g.id}">${g.name}</option>`)
     .join('');
+  buildBtn.disabled = false;
   onBoardChange();
 }
 
@@ -325,6 +338,7 @@ function onBoardChange() {
   typeSel.innerHTML = envs
     .map(e => `<option value="${e.env_name}">${e.label}</option>`)
     .join('');
+  typeSel.closest('label').hidden = sourceSel.value === 'mqtt_fork';
   onTypeChange();
 }
 
@@ -342,6 +356,44 @@ function onTypeChange() {
 
 boardSel.addEventListener('change', onBoardChange);
 typeSel.addEventListener('change', onTypeChange);
+
+function loadVersions(source) {
+  return fetch(`/api/versions?source=${source}`)
+    .then(r => r.json())
+    .then(versions => {
+      refSelect.innerHTML = versions
+        .map(v => `<option value="${v.value}">${v.label}</option>`)
+        .join('');
+    })
+    .catch(() => {});
+}
+
+function loadEnvironments(source, ref) {
+  allEnvs = [];
+  boardSel.innerHTML = '<option>Loading…</option>';
+  typeSel.innerHTML = '';
+  buildBtn.disabled = true;
+  fetch(`/api/environments?source=${source}&ref=${encodeURIComponent(ref)}`)
+    .then(r => r.json())
+    .then(data => { allEnvs = data; populateBoardSelect(); })
+    .catch(() => {
+      boardSel.innerHTML = '<option disabled>Failed to load</option>';
+    });
+}
+
+sourceSel.addEventListener('change', () => {
+  const source = sourceSel.value;
+  allEnvs = [];
+  refSelect.innerHTML = '<option>Loading…</option>';
+  boardSel.innerHTML = '<option>Loading…</option>';
+  typeSel.innerHTML = '';
+  buildBtn.disabled = true;
+  loadVersions(source).then(() => loadEnvironments(source, refSelect.value));
+});
+
+refSelect.addEventListener('change', () => {
+  loadEnvironments(sourceSel.value, refSelect.value);
+});
 
 // ---------------------------------------------------------------------------
 // Build
@@ -391,6 +443,7 @@ function startBuild() {
   if (regions === null) return;
 
   const body = {
+    source: sourceSel.value,
     env: currentEnvName(),
     ref: refSelect.value,
     prs: collectPRs(),
@@ -505,19 +558,4 @@ if (savedBuildId) {
     });
 }
 
-fetch('/api/environments')
-  .then(r => r.json())
-  .then(data => {
-    allEnvs = data;
-    populateBoardSelect();
-  })
-  .catch(() => appendLog('Failed to load board list.'));
-
-fetch('/api/versions')
-  .then(r => r.json())
-  .then(versions => {
-    refSelect.innerHTML = versions
-      .map(v => `<option value="${v.value}">${v.label}</option>`)
-      .join('');
-  })
-  .catch(() => {});  // non-critical
+loadVersions('official').then(() => loadEnvironments('official', refSelect.value));

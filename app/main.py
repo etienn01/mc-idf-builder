@@ -2,7 +2,6 @@
 import asyncio
 import json
 import logging
-import os
 import re
 import shutil
 import tempfile
@@ -17,7 +16,6 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.builder import (
     MAX_QUEUE_SIZE,
-    MESHCORE_REPO,
     BuildRequest,
     BuildStatus,
     RegionEntry,
@@ -25,6 +23,17 @@ from app.builder import (
     queue,
 )
 from app.parser import group_by_folder, load_environments, prettify_board_name
+
+_SOURCES: dict[str, dict] = {
+    "official": {
+        "repo": "https://github.com/meshcore-dev/MeshCore.git",
+        "default_ref": "dev",
+    },
+    "mqtt_fork": {
+        "repo": "https://github.com/agessaman/MeshCore.git",
+        "default_ref": "mqtt-bridge-implementation-flex",
+    },
+}
 
 _app_logger = logging.getLogger("app")
 _app_logger.setLevel(logging.INFO)
@@ -36,19 +45,20 @@ log = logging.getLogger(__name__)
 # Startup / shutdown
 # ---------------------------------------------------------------------------
 
-_envs = []
-_versions_cache: list[str] = []
-_versions_cache_time: float = 0.0
+_envs_cache: dict[str, list] = {}
+_envs_cache_time: dict[str, float] = {}
+_envs_locks: dict[str, asyncio.Lock] = {}
+_versions_cache: dict[str, list] = {}
+_versions_cache_time: dict[str, float] = {}
 
 _REPEATER_TAG_RE = re.compile(r"^repeater-(v\d+\.\d+.*)$")
 _MIN_VERSION = (1, 10, 0)
 
 
-async def _clone_for_discovery() -> str:
-    ref = os.environ.get("MESHCORE_REF", "dev")
+async def _clone_for_discovery(repo: str, ref: str) -> str:
     tmpdir = tempfile.mkdtemp(prefix="meshcore-discovery-")
     proc = await asyncio.create_subprocess_exec(
-        "git", "clone", "--depth", "1", "--branch", ref, MESHCORE_REPO, tmpdir,
+        "git", "clone", "--depth", "1", "--branch", ref, repo, tmpdir,
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.DEVNULL,
     )
@@ -58,19 +68,34 @@ async def _clone_for_discovery() -> str:
     return tmpdir
 
 
+async def _get_envs(source: str, ref: str) -> list:
+    cache_key = f"{source}:{ref}"
+    cached = _envs_cache.get(cache_key)
+    if cached and time.monotonic() - _envs_cache_time.get(cache_key, 0) < 3600:
+        return cached
+    lock = _envs_locks.setdefault(cache_key, asyncio.Lock())
+    async with lock:
+        cached = _envs_cache.get(cache_key)
+        if cached and time.monotonic() - _envs_cache_time.get(cache_key, 0) < 3600:
+            return cached
+        tmpdir = None
+        try:
+            tmpdir = await _clone_for_discovery(_SOURCES[source]["repo"], ref)
+            envs = load_environments(tmpdir)
+            _envs_cache[cache_key] = envs
+            _envs_cache_time[cache_key] = time.monotonic()
+            return envs
+        except Exception as exc:
+            log.warning("failed to load environments for %s@%s: %s", source, ref, exc)
+            return []
+        finally:
+            if tmpdir:
+                shutil.rmtree(tmpdir, ignore_errors=True)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _envs
-    tmpdir = None
-    try:
-        tmpdir = await _clone_for_discovery()
-        _envs = load_environments(tmpdir)
-    except Exception as exc:
-        log.warning("failed to load environments: %s", exc)
-    finally:
-        if tmpdir:
-            shutil.rmtree(tmpdir, ignore_errors=True)
-
+    await _get_envs("official", _SOURCES["official"]["default_ref"])
     yield
     queue.cancel_all()
 
@@ -93,6 +118,7 @@ class RegionEntryModel(BaseModel):
 
 
 class BuildRequestModel(BaseModel):
+    source: Literal["official", "mqtt_fork"] = "official"
     env: str
     ref: str = Field(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9._/\-]{0,99}$")
     prs: list[Annotated[int, Field(gt=0)]] = Field(default=[], max_length=10)
@@ -124,37 +150,45 @@ class BuildRequestModel(BaseModel):
 
 
 @app.get("/api/environments")
-def get_environments():
-    grouped = group_by_folder(_envs)
+async def get_environments(source: str = "official", ref: str = ""):
+    if source not in _SOURCES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unknown source: {source!r}")
+    envs = await _get_envs(source, ref or _SOURCES[source]["default_ref"])
+    if source == "mqtt_fork":
+        envs = [e for e in envs if e.env_name.lower().endswith("_repeater_observer_mqtt")]
+    grouped = group_by_folder(envs)
     return [
         {
             "id": board_id,
             "name": prettify_board_name(board_id),
             "envs": [
                 {"env_name": e.env_name, "role": e.role, "label": e.label, "platform": e.platform}
-                for e in envs
+                for e in board_envs
             ],
         }
-        for board_id, envs in grouped.items()
+        for board_id, board_envs in grouped.items()
     ]
 
 
 @app.get("/api/versions")
-async def get_versions():
-    global _versions_cache, _versions_cache_time
-    if time.monotonic() - _versions_cache_time < 300 and _versions_cache:
-        return _versions_cache
+async def get_versions(source: str = "official"):
+    if source not in _SOURCES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unknown source: {source!r}")
+    cached = _versions_cache.get(source)
+    if cached and time.monotonic() - _versions_cache_time.get(source, 0) < 3600:
+        return cached
 
+    repo = _SOURCES[source]["repo"]
+    default_ref = _SOURCES[source]["default_ref"]
     proc = await asyncio.create_subprocess_exec(
-        "git", "ls-remote", "--tags", "--heads", MESHCORE_REPO,
+        "git", "ls-remote", "--tags", "--heads", repo,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
     stdout, stderr = await proc.communicate()
     if proc.returncode != 0:
-        log.warning("git ls-remote failed: %s", stderr.decode().strip())
+        log.warning("git ls-remote failed for %s: %s", source, stderr.decode().strip())
 
-    # Build ref → commit SHA map; prefer ^{} (dereferenced) SHA for annotated tags
     sha_map: dict[str, str] = {}
     for line in stdout.decode().splitlines():
         parts = line.split("\t")
@@ -166,34 +200,48 @@ async def get_versions():
         elif ref not in sha_map:
             sha_map[ref] = sha
 
-    branches = []
-    for branch in ("main", "dev"):
-        ref = f"refs/heads/{branch}"
-        if ref in sha_map:
-            branches.append({"label": f"{branch} ({sha_map[ref][:7]})", "value": branch})
+    if source == "official":
+        branches = []
+        for branch in ("main", "dev"):
+            ref = f"refs/heads/{branch}"
+            if ref in sha_map:
+                branches.append({"label": f"{branch} ({sha_map[ref][:7]})", "value": branch})
 
-    tags = []
-    for ref, sha in sha_map.items():
-        if not ref.startswith("refs/tags/"):
-            continue
-        raw_tag = ref.removeprefix("refs/tags/")
-        m = _REPEATER_TAG_RE.match(raw_tag)
-        if m:
-            tags.append({"label": f"{m.group(1)} ({sha[:7]})", "value": raw_tag})
+        tags = []
+        for ref, sha in sha_map.items():
+            if not ref.startswith("refs/tags/"):
+                continue
+            raw_tag = ref.removeprefix("refs/tags/")
+            m = _REPEATER_TAG_RE.match(raw_tag)
+            if m:
+                tags.append({"label": f"{m.group(1)} ({sha[:7]})", "value": raw_tag})
 
-    def _ver_key(t: dict):
-        return tuple(int(x) for x in re.findall(r"\d+", t["label"]))
+        def _ver_key(t: dict):
+            return tuple(int(x) for x in re.findall(r"\d+", t["label"]))
 
-    tags = [t for t in tags if _ver_key(t) >= _MIN_VERSION]
-    tags.sort(key=_ver_key, reverse=True)
-    _versions_cache = tags[:20] + branches
-    _versions_cache_time = time.monotonic()
-    return _versions_cache
+        tags = [t for t in tags if _ver_key(t) >= _MIN_VERSION]
+        tags.sort(key=_ver_key, reverse=True)
+        result = tags[:20] + branches
+    else:
+        branches = []
+        for ref, sha in sha_map.items():
+            if ref.startswith("refs/heads/"):
+                branch = ref.removeprefix("refs/heads/")
+                branches.append({"label": f"{branch} ({sha[:7]})", "value": branch})
+        branches.sort(key=lambda b: (0 if b["value"] == default_ref else 1, b["value"]))
+        result = branches
+
+    _versions_cache[source] = result
+    _versions_cache_time[source] = time.monotonic()
+    return result
 
 
 @app.post("/api/build")
 async def submit_build(body: BuildRequestModel):
-    if body.env not in {e.env_name for e in _envs}:
+    if body.source not in _SOURCES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unknown source: {body.source!r}")
+    source_envs = await _get_envs(body.source, body.ref)
+    if body.env not in {e.env_name for e in source_envs}:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unknown environment: {body.env!r}")
     if queue.queue_depth() >= MAX_QUEUE_SIZE:
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Build queue is full, try again later")  # noqa: E501
@@ -201,6 +249,7 @@ async def submit_build(body: BuildRequestModel):
     req = BuildRequest(
         env=body.env,
         ref=body.ref,
+        repo=_SOURCES[body.source]["repo"],
         prs=body.prs,
         wifi_ssid=body.wifi_ssid,
         wifi_pwd=body.wifi_pwd,
@@ -211,8 +260,8 @@ async def submit_build(body: BuildRequestModel):
     )
     job = make_job(req)
     log.info(
-        "[%s] submitted env=%s ref=%s prs=%s regions=%s wifi=%s",
-        job.id, job.env, job.ref, job.prs,
+        "[%s] submitted source=%s env=%s ref=%s prs=%s regions=%s wifi=%s",
+        job.id, body.source, job.env, job.ref, job.prs,
         [(r.name, r.parent, r.flood) for r in req.regions],
         bool(req.wifi_ssid),
     )

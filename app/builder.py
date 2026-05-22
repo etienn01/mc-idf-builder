@@ -14,7 +14,6 @@ from app.patcher import apply as _patch
 
 log = logging.getLogger(__name__)
 
-MESHCORE_REPO = os.environ.get("MESHCORE_REPO", "https://github.com/meshcore-dev/MeshCore.git")
 DOWNLOADS_DIR = Path("downloads")
 MAX_CONCURRENT = int(os.environ.get("MAX_CONCURRENT_BUILDS", "2"))
 MAX_QUEUE_SIZE = int(os.environ.get("MAX_QUEUE_SIZE", "10"))
@@ -48,6 +47,7 @@ class RegionEntry:
 class BuildRequest:
     env: str
     ref: str
+    repo: str
     prs: list[int] = field(default_factory=list)
     wifi_ssid: str = ""
     wifi_pwd: str = ""
@@ -59,6 +59,7 @@ class BuildJob:
     id: str
     env: str
     ref: str
+    repo: str
     prs: list[int]
     build_flags: str
     status: BuildStatus = BuildStatus.PENDING
@@ -201,7 +202,7 @@ class BuildQueue:
             await self._emit(job.id, f"=== Cloning MeshCore @ {job.ref} ===")
             rc = await run(
                 "git", "clone", "--depth", "1", "--branch", job.ref,
-                "--progress", MESHCORE_REPO, srcdir,
+                "--progress", job.repo, srcdir,
                 cwd=tmpdir,
             )
             if rc != 0:
@@ -309,6 +310,7 @@ def make_job(req: BuildRequest) -> BuildJob:
         id=str(uuid.uuid4()),
         env=req.env,
         ref=req.ref,
+        repo=req.repo,
         prs=list(req.prs),
         build_flags=build_flags_for(req),
     )
