@@ -38,13 +38,15 @@ const regionsEnable = document.getElementById('regions-enable');
 const regionBody    = document.getElementById('region-body');
 const regionRows    = document.getElementById('region-rows');
 const resetBtn      = document.getElementById('reset-regions-btn');
-const locationSec  = document.getElementById('location-section');
 const wifiSec      = document.getElementById('wifi-section');
 const buildBtn     = document.getElementById('build-btn');
 const cancelBtn    = document.getElementById('cancel-btn');
 const logSec       = document.getElementById('log-section');
 const logOut       = document.getElementById('log-output');
 const dlLink       = document.getElementById('download-link');
+const dfuBtn       = document.getElementById('dfu-btn');
+const flashBtn     = document.getElementById('flash-btn');
+const flashSection = document.getElementById('flash-section');
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -329,7 +331,6 @@ function onBoardChange() {
 function onTypeChange() {
   const rep = isRepeater();
   regionSec.hidden = !rep;
-  locationSec.hidden = !rep;
   wifiSec.hidden = !isWifiCompanion();
   if (rep) {
     regionsEnable.checked = false;
@@ -393,21 +394,18 @@ function startBuild() {
     env: currentEnvName(),
     ref: refSelect.value,
     prs: collectPRs(),
-    advert_name: document.getElementById('advert-name').value || undefined,
-    admin_password: document.getElementById('admin-password').value || undefined,
     wifi_ssid: document.getElementById('wifi-ssid').value || undefined,
     wifi_pwd: document.getElementById('wifi-pwd').value || undefined,
     regions,
   };
 
-  const latVal = document.getElementById('lat').value;
-  const lonVal = document.getElementById('lon').value;
-  if (latVal !== '') body.advert_lat = parseFloat(latVal);
-  if (lonVal !== '') body.advert_lon = parseFloat(lonVal);
-
   // Reset UI
   logOut.textContent = '';
   dlLink.hidden = true;
+  dfuBtn.hidden = true;
+  flashBtn.hidden = true;
+  flashSection.hidden = true;
+  window._flashState = null;
   logSec.hidden = false;
   buildBtn.disabled = true;
   cancelBtn.hidden = false;
@@ -466,6 +464,13 @@ function checkStatus(buildId) {
         dlLink.href = download_url;
         dlLink.textContent = `Download ${filename ?? currentEnvName() + '.bin'}`;
         dlLink.hidden = false;
+        const flashable = filename && (filename.endsWith('.bin') || filename.endsWith('.zip'));
+        if (flashable) {
+          window._flashState = { downloadUrl: download_url, filename };
+          dfuBtn.hidden = !filename.endsWith('.zip');
+          flashBtn.hidden = false;
+          flashSection.hidden = true;
+        }
       }
     });
 }

@@ -61,12 +61,6 @@
       </div>
     </fieldset>
 
-    <label>
-      <span>Device name</span>
-      <input type="text" id="advert-name" placeholder="firmware default" maxlength="31">
-    </label>
-    <p class="field-note">Applied on first boot only — ignored if the device already has saved settings.</p>
-
     <div id="wifi-section" hidden>
       <label>
         <span>WiFi SSID</span>
@@ -78,27 +72,18 @@
       </label>
     </div>
 
-    <div id="location-section" hidden>
-      <label>
-        <span>Admin password</span>
-        <input type="text" id="admin-password" placeholder="firmware default" maxlength="15">
-      </label>
-      <p class="field-note">Applied on first boot only — ignored if the device already has saved settings.</p>
-      <div class="row-2">
-        <label>
-          <span>Latitude</span>
-          <input type="number" id="lat" step="any" min="-90" max="90" placeholder="optional">
-        </label>
-        <label>
-          <span>Longitude</span>
-          <input type="number" id="lon" step="any" min="-180" max="180" placeholder="optional">
-        </label>
-      </div>
-    </div>
-
     <button type="button" id="build-btn">Build firmware</button>
     <button type="button" id="cancel-btn" hidden>Cancel build</button>
     <a id="download-link" hidden href="#">Download firmware</a>
+    <div id="flash-row">
+      <button type="button" id="dfu-btn" hidden>Enter DFU mode</button>
+      <button type="button" id="flash-btn" hidden>Flash to device</button>
+    </div>
+    <div id="flash-section" hidden>
+      <progress id="flash-bar" max="100" value="0"></progress>
+      <p id="flash-status"></p>
+      <pre id="flash-log" hidden></pre>
+    </div>
   </div>
 
   <section id="log-section" hidden>
@@ -107,5 +92,6 @@
   </section>
 </main>
 <script src="/app.js"></script>
+<script type="module" src="/flash.js"></script>
 </body>
 </html>

@@ -49,10 +49,6 @@ class BuildRequest:
     env: str
     ref: str
     prs: list[int] = field(default_factory=list)
-    advert_name: str = ""
-    admin_password: str = ""
-    advert_lat: float | None = None
-    advert_lon: float | None = None
     wifi_ssid: str = ""
     wifi_pwd: str = ""
     regions: list[RegionEntry] = field(default_factory=list)
@@ -87,14 +83,6 @@ def _encode_regions(regions: list[RegionEntry]) -> str:
 
 def build_flags_for(req: BuildRequest) -> str:
     flags = list(_LORA_FLAGS)
-    if req.advert_name:
-        flags.append(f"-D ADVERT_NAME='\"{ req.advert_name }\"'")
-    if req.admin_password:
-        flags.append(f"-D ADMIN_PASSWORD='\"{ req.admin_password }\"'")
-    if req.advert_lat is not None:
-        flags.append(f"-D ADVERT_LAT={req.advert_lat:.6f}")
-    if req.advert_lon is not None:
-        flags.append(f"-D ADVERT_LON={req.advert_lon:.6f}")
     if req.wifi_ssid:
         flags.append(f"-D WIFI_SSID='\"{ req.wifi_ssid }\"'")
     if req.wifi_pwd:

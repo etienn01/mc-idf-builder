@@ -70,19 +70,6 @@ select:focus {
   box-shadow: 0 0 0 2px #0070f3;
 }
 
-.row-2 {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.6rem;
-}
-
-.field-note {
-  font-size: 0.72rem;
-  color: #888;
-  margin-top: 2px;
-  margin-bottom: 0.9rem;
-}
-
 /* Regions */
 #regions-enable-label {
   display: flex;
@@ -346,6 +333,70 @@ select:focus {
 }
 
 #download-link:hover { background: #005ac5; }
+
+#flash-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+#dfu-btn {
+  flex-shrink: 0;
+  padding: 0.45rem 0.75rem;
+  background: none;
+  color: #0070f3;
+  border: 1px solid #0070f3;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+#flash-btn {
+  flex: 1;
+  padding: 0.55rem;
+  background: none;
+  color: #0070f3;
+  border: 1px solid #0070f3;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+#dfu-btn:hover:not(:disabled),
+#flash-btn:hover:not(:disabled) { background: #f0f6ff; }
+
+#dfu-btn:disabled,
+#flash-btn:disabled { color: #aaa; border-color: #ccc; cursor: not-allowed; }
+
+#flash-section { margin-top: 0.5rem; }
+
+#flash-bar {
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  margin-bottom: 0.3rem;
+  accent-color: #0070f3;
+}
+
+#flash-status {
+  font-size: 0.78rem;
+  color: #555;
+}
+
+#flash-log {
+  margin-top: 0.4rem;
+  max-height: 140px;
+  overflow-y: auto;
+  background: #f5f5f5;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  padding: 0.5rem;
+  font-family: ui-monospace, monospace;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
 
 [hidden] { display: none !important; }
 

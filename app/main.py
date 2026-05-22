@@ -96,10 +96,6 @@ class BuildRequestModel(BaseModel):
     env: str
     ref: str = Field(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9._/\-]{0,99}$")
     prs: list[Annotated[int, Field(gt=0)]] = Field(default=[], max_length=10)
-    advert_name: str = Field("", max_length=31, pattern=_SAFE_STR)
-    admin_password: str = Field("", max_length=15, pattern=_SAFE_STR)
-    advert_lat: float | None = Field(None, ge=-90, le=90)
-    advert_lon: float | None = Field(None, ge=-180, le=180)
     wifi_ssid: str = Field("", max_length=32, pattern=_SAFE_STR)
     wifi_pwd: str = Field("", max_length=63, pattern=_SAFE_STR)
     regions: list[RegionEntryModel] = []
@@ -206,10 +202,6 @@ async def submit_build(body: BuildRequestModel):
         env=body.env,
         ref=body.ref,
         prs=body.prs,
-        advert_name=body.advert_name,
-        admin_password=body.admin_password,
-        advert_lat=body.advert_lat,
-        advert_lon=body.advert_lon,
         wifi_ssid=body.wifi_ssid,
         wifi_pwd=body.wifi_pwd,
         regions=[
@@ -219,10 +211,10 @@ async def submit_build(body: BuildRequestModel):
     )
     job = make_job(req)
     log.info(
-        "[%s] submitted env=%s ref=%s prs=%s regions=%s name=%r lat=%s lon=%s wifi=%s",
+        "[%s] submitted env=%s ref=%s prs=%s regions=%s wifi=%s",
         job.id, job.env, job.ref, job.prs,
         [(r.name, r.parent, r.flood) for r in req.regions],
-        req.advert_name, req.advert_lat, req.advert_lon, bool(req.wifi_ssid),
+        bool(req.wifi_ssid),
     )
     queue.submit(job)
     return {"build_id": job.id}
