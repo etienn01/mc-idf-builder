@@ -17,7 +17,7 @@ const SUGGESTED_PRS = {
     { number: 2140, title: 'CLI control for LoRa FEM LNA', boards: ['heltec_v4', 'heltec_t096', 'heltec_tracker_v2'] },
   ],
   companion: [
-    { number: 1686, title: 'Short sleeps when phone disconnects' },
+    { number: 1686, title: 'Short sleeps when phone disconnects', platform: 'espressif32' },
     { number: 2286, title: 'Power saving for nRF52 companions (+30% battery)', platform: 'nordicnrf52' },
   ],
 };
